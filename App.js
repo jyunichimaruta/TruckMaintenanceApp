@@ -1,5 +1,7 @@
 // App.js (修正箇所)
 import 'react-native-gesture-handler';
+import { enableScreens } from 'react-native-screens';
+enableScreens(true);
 import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from 'react';
 import {
