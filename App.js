@@ -1,7 +1,7 @@
 // App.js
 import 'react-native-gesture-handler';
-// import { enableScreens } from 'react-native-screens'; // enableScreens は完全にコメントアウト
-// enableScreens(true); // enableScreens は完全にコメントアウト
+// import { enableScreens } from 'react-native-screens'; // この行は引き続きコメントアウトまたは削除したままでOK
+// enableScreens(true); // この行も同様にコメントアウトまたは削除したままでOK
 import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from 'react';
 import {
@@ -13,11 +13,11 @@ import {
   ScrollView,
   Alert,
   KeyboardAvoidingView,
-  Platform,
+  Platform, // Platform をインポート
   SafeAreaView,
 } from 'react-native';
 
-import { NavigationContainer } from '@react-navigation/native'; // useRoute はApp.jsから削除
+import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 
 import { db } from './firebase';
@@ -28,30 +28,7 @@ import RecordsScreen from './RecordsScreen';
 const Stack = createStackNavigator();
 
 const App = () => {
-  // formDataなどのStateは、App.jsからFormコンポーネントに移す必要があります
-  // もしApp.jsがFormコンポーネントを内包するなら、このstateはそのまま。
-  // 今回のApp.jsの構成では、handleSubmitが外出しなので、formDataはここに残します。
-  // ただし、フォームの入力値は、`Form`スクリーンをレンダリングする関数コンポーネント内で管理します。
-  const [formData, setFormData] = useState({
-    vehicle_number: '',
-    user_name: '',
-    vehicle_model: '',
-    issue_description: '',
-    action_taken: '',
-    repair_notes: '',
-  });
-
-  const handleChange = (name, value) => {
-    setFormData(prevState => ({
-      ...prevState,
-      [name]: value,
-    }));
-  };
-
-  // handleSubmitも、Formコンポーネントの内部に移動させるのが望ましいですが、
-  // 現状のApp.jsの構造に合わせて、引数を追加して修正します。
-  // このhandleSubmit関数は、App.js内のFormスクリーンで定義されるコンポーネントから呼び出されます。
-  const handleSubmit = async (currentFormData, currentRecordId, navigation) => { // 引数を変更
+  const handleSubmit = async (currentFormData, currentRecordId, navigation) => {
     if (!currentFormData.vehicle_number || !currentFormData.user_name || !currentFormData.issue_description || !currentFormData.action_taken) {
       Alert.alert("エラー", "車両番号、ユーザー名、問題点、とった処置は必須項目です。");
       return;
@@ -75,11 +52,9 @@ const App = () => {
         console.log("記録追加成功");
       }
 
-      // 送信後にフォームをクリアする必要があるが、これはフォームコンポーネント側で行う
-      // そして、Records画面に遷移
+      // 送信後に Records 画面に遷移
       if (Platform.OS === 'web') {
-        // Web版ではRecords画面に直接遷移して、URLパラメータを削除
-        // Records画面は '/' にあるとして、URLをクリーンにする
+        // Web版ではRecords画面に直接遷移して、URLパラメータを削除（クリーンにする）
         window.location.href = `${window.location.origin}/Records`;
       } else {
         // ネイティブアプリではナビゲーションを使用
@@ -98,7 +73,6 @@ const App = () => {
         {/* Form画面の定義 */}
         <Stack.Screen name="Form" options={{ title: '記録の登録/編集' }}>
           {({ route, navigation }) => {
-            // このコンポーネント内でFormのstateとuseEffectを管理
             const [localFormData, setLocalFormData] = useState({
               vehicle_number: '',
               user_name: '',
@@ -135,13 +109,14 @@ const App = () => {
                                     recordData = { ...docSnap.data(), id: docSnap.id };
                                     console.log("Web版でFirestoreからレコードデータを取得:", recordData);
                                 } else {
-                                    console.log("指定された記録が見つかりませんでした。");
-                                    Alert.alert("エラー", "指定された記録が見つかりませんでした。");
-                                    window.history.replaceState({}, document.title, window.location.pathname); // URLからrecordIdを削除
+                                    console.log("指定された記録がWeb版で見つかりませんでした。新規作成モードへ移行。");
+                                    Alert.alert("情報", "指定された記録が見つからなかったため、新規作成画面になりました。");
+                                    // 見つからない場合はURLからrecordIdを削除して新規作成モードにする
+                                    window.history.replaceState({}, document.title, window.location.pathname); 
                                 }
                             } catch (error) {
-                                console.error("Error fetching document:", error);
-                                Alert.alert("エラー", "記録の取得中にエラーが発生しました。");
+                                console.error("Web版での記録取得エラー: ", error);
+                                Alert.alert("エラー", "記録の取得中にエラーが発生しました。新規作成モードへ移行。");
                                 window.history.replaceState({}, document.title, window.location.pathname);
                             }
                         }
@@ -179,11 +154,15 @@ const App = () => {
                 };
 
                 fetchRecordAndSetForm();
-            // route.paramsを依存配列に入れると、ネイティブアプリで戻るボタンを押した際に
-            // 新規作成画面に戻るべきときに再度データがセットされる問題を避けるため、
-            // WebのURL変更のみをトリガーにするか、より細かく制御する必要がある。
-            // ここでは、WebのURL変更（レコードIDの有無）と、ネイティブアプリのroute.params.recordToEditの有無でトリガー
-            }, [route.params?.recordToEdit, window.location.search]); // Webの場合はwindow.location.searchを監視
+            // 依存配列はPlatform.OSで分岐
+            // Web版の場合はURLのクエリパラメータの変化を監視（直接読み取って変化を検知）
+            // ネイティブアプリの場合はroute.paramsの変化を監視
+            }, [Platform.OS === 'web' ? window.location.search : route.params?.recordToEdit]); 
+            // 注意: window.location.search はオブジェクトではなく文字列なので、
+            // そのまま依存配列に入れても問題ありません。
+            // route.params?.recordToEdit はオブジェクトなので、中身が同じでも参照が異なる場合があるため、
+            // オブジェクト全体ではなく、その中の特定のプロパティ (例: recordToEdit.id) を依存配列に入れることも検討できますが、
+            // 今回はシンプルに recordToEdit の有無で判断しているので、このままで。
 
             const handleFormSubmitAndClear = async () => {
                 await handleSubmit(localFormData, editingRecordIdForm, navigation);
@@ -208,9 +187,8 @@ const App = () => {
                     placeholder="例: ABC-123"
                     value={localFormData.vehicle_number}
                     onChangeText={(text) => handleLocalChange('vehicle_number', text)}
-                    autoComplete="off"
-                    textContentType="none"
-                    keyboardType="default"
+                    autoCapitalize="none" // オートコンプリートを無効化
+                    autoCorrect={false} // オートコレクトを無効化
                   />
 
                   <Text style={styles.label}>ユーザー名:</Text>
@@ -219,9 +197,8 @@ const App = () => {
                     placeholder="例: 山田 太郎"
                     value={localFormData.user_name}
                     onChangeText={(text) => handleLocalChange('user_name', text)}
-                    autoComplete="name"
-                    textContentType="name"
-                    keyboardType="default"
+                    autoCapitalize="words" // 名前の入力なので単語の先頭を大文字に
+                    autoCorrect={false}
                   />
 
                   <Text style={styles.label}>車両モデル:</Text>
@@ -230,9 +207,8 @@ const App = () => {
                     placeholder="例: Toyota Hilux"
                     value={localFormData.vehicle_model}
                     onChangeText={(text) => handleLocalChange('vehicle_model', text)}
-                    autoComplete="off"
-                    textContentType="none"
-                    keyboardType="default"
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
 
                   <Text style={styles.label}>問題点:</Text>
@@ -243,9 +219,9 @@ const App = () => {
                     onChangeText={(text) => handleLocalChange('issue_description', text)}
                     multiline
                     numberOfLines={4}
-                    autoComplete="off"
-                    textContentType="none"
-                    keyboardType="default"
+                    autoCapitalize="sentences" // 文の先頭を大文字に
+                    autoCorrect={true}
+                    textAlignVertical="top" // Androidでのテキストの垂直方向の開始位置
                   />
 
                   <Text style={styles.label}>とった処置:</Text>
@@ -256,9 +232,9 @@ const App = () => {
                     onChangeText={(text) => handleLocalChange('action_taken', text)}
                     multiline
                     numberOfLines={4}
-                    autoComplete="off"
-                    textContentType="none"
-                    keyboardType="default"
+                    autoCapitalize="sentences"
+                    autoCorrect={true}
+                    textAlignVertical="top"
                   />
 
                   <Text style={styles.label}>整備メモ:</Text>
@@ -269,9 +245,9 @@ const App = () => {
                     onChangeText={(text) => handleLocalChange('repair_notes', text)}
                     multiline
                     numberOfLines={4}
-                    autoComplete="off"
-                    textContentType="none"
-                    keyboardType="default"
+                    autoCapitalize="sentences"
+                    autoCorrect={true}
+                    textAlignVertical="top"
                   />
 
                   <Button title={isEditingForm ? "更新" : "保存"} onPress={handleFormSubmitAndClear} />
@@ -323,14 +299,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
+    // input の高さが multiline で変わる場合があるので、textAreaと同じく textAlignVertical を追加
+    textAlignVertical: 'top', 
   },
-  container: { // このスタイルはAppコンポーネント全体のもので、Form画面のScrollViewには直接適用されません
+  container: { 
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
   },
-  title: { // このスタイルもAppコンポーネント全体のもので、Form画面のテキストには直接適用されません
+  title: { 
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 20,
