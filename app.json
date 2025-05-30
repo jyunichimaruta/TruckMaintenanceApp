@@ -4,7 +4,7 @@
     "slug": "TruckMaintenanceApp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png", 
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,7 +15,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.truckmaintenanceapp",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -26,10 +29,16 @@
       "versionCode": 1
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "webpack" 
     },
     "plugins": [
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2b011bac-9b26-4fc3-9a72-67b1bb4d8874"
+      }
+    }
   }
 }
