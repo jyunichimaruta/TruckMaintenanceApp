@@ -1,428 +1,313 @@
-// RecordsScreen.js
+import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  ActivityIndicator,
-  FlatList,
-  RefreshControl,
-  TouchableOpacity,
-  TextInput,
-  Platform,
-  Alert,
-} from 'react-native';
-
-import { Dialog, Button as ElementsButton } from 'react-native-elements'; 
-
-import DateTimePicker from '@react-native-community/datetimepicker'; 
-
-import { collection, query, orderBy, getDocs, doc, deleteDoc, where, Timestamp } from 'firebase/firestore';
-import { db } from './firebase';
+import { StyleSheet, Text, View, Alert, TouchableOpacity, ScrollView, Platform, Modal, Pressable, TextInput } from 'react-native';
+import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy, where } from 'firebase/firestore';
+import { db } from './firebase'; // firebase.jsからdbをインポート
 
 const RecordsScreen = ({ navigation }) => {
+  const [vehicleNumber, setVehicleNumber] = useState('');
+  const [userName, setUserName] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
+  const [problemDescription, setProblemDescription] = useState('');
+  const [solution, setSolution] = useState('');
+  const [maintenanceMemo, setMaintenanceMemo] = useState('');
+
   const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [selectedRecordId, setSelectedRecordId] = useState(null);
+  const [selectedRecord, setSelectedRecord] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(''); // 検索クエリの状態
+  const [isEditing, setIsEditing] = useState(false); // 編集モードの状態
 
-  const [searchVehicleNumber, setSearchVehicleNumber] = useState('');
-  const [startDate, setStartDate] = useState(null);
-  const [endDate, setEndDate] = useState(null);
+  // recordsコレクションへの参照
+  const recordsCollectionRef = collection(db, 'records');
 
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [datePickerMode, setDatePickerMode] = useState('date');
-  const [pickingFor, setPickingFor] = useState(null);
-
-  const onDateChange = (event, selectedDate) => {
-    const currentDate = selectedDate || new Date();
-    if (Platform.OS === 'ios') {
-      setShowDatePicker(false); 
-    }
-    if (pickingFor === 'start') {
-      setStartDate(currentDate);
-    } else if (pickingFor === 'end') {
-      setEndDate(currentDate);
-    }
-  };
-
-  const showMode = (currentMode, forWhichDate) => {
-    setShowDatePicker(true);
-    setDatePickerMode(currentMode);
-    setPickingFor(forWhichDate);
-  };
-
-  const showStartDatePicker = () => {
-    showMode('date', 'start');
-  };
-
-  const showEndDatePicker = () => {
-    showMode('date', 'end');
-  };
-
-  const fetchRecords = async (vehicleNum = searchVehicleNumber, startDt = startDate, endDt = endDate) => {
-    console.log("fetchRecords: 記録の取得を開始します。");
-    setLoading(true);
-    setRefreshing(true);
+  // データ取得関数
+  const getRecords = async () => {
     try {
-      let recordsCollection = collection(db, 'records');
-      let q = query(recordsCollection, orderBy('timestamp', 'desc'));
-
-      const queryConditions = [];
-
-      if (vehicleNum) {
-        queryConditions.push(where('vehicle_number', '==', vehicleNum));
-      }
-
-      if (startDt) {
-        queryConditions.push(where('timestamp', '>=', Timestamp.fromDate(startDt)));
-      }
-      if (endDt) {
-        const nextDay = new Date(endDt);
-        nextDay.setDate(nextDay.getDate() + 1);
-        nextDay.setHours(0, 0, 0, 0);
-        queryConditions.push(where('timestamp', '<', Timestamp.fromDate(nextDay)));
-      }
-
-      if (queryConditions.length > 0) {
-        q = query(recordsCollection, ...queryConditions, orderBy('timestamp', 'desc')); 
-      }
-
-      const querySnapshot = await getDocs(q);
-      const fetchedRecords = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const q = query(recordsCollectionRef, orderBy('createdAt', 'desc')); // 作成日で降順ソート
+      const data = await getDocs(q);
+      const fetchedRecords = data.docs.map(doc => ({ ...doc.data(), id: doc.id }));
       setRecords(fetchedRecords);
-      console.log("fetchRecords: 記録の取得に成功しました。取得件数:", fetchedRecords.length);
     } catch (error) {
-      console.error("fetchRecords: 記録の取得エラー: ", error);
-      Platform.OS === 'web'
-        ? window.alert("エラー: 記録の読み込み中に問題が発生しました。\n" + error.message)
-        : Alert.alert("エラー", "記録の読み込み中に問題が発生しました。\n" + error.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-      console.log("fetchRecords: 記録の取得処理を終了しました。");
+      console.error("データの取得中にエラーが発生しました: ", error);
+      Alert.alert("エラー", "データの取得に失敗しました。");
     }
-  };
-
-  const handleSearch = () => {
-    fetchRecords();
-  };
-
-  const handleClearFilters = () => {
-    setSearchVehicleNumber('');
-    setStartDate(null);
-    setEndDate(null);
-    fetchRecords('', null, null);
   };
 
   useEffect(() => {
-    fetchRecords();
-    const unsubscribe = navigation.addListener('focus', () => {
-      fetchRecords();
-    });
+    getRecords();
+  }, []);
 
-    return unsubscribe;
-  }, [navigation]);
-
-  const handleDeleteRecord = async (id) => {
-    console.log("1. handleDeleteRecordが呼び出されました。ID:", id); 
-
-    if (Platform.OS === 'web') {
-      setSelectedRecordId(id);
-      setShowDeleteDialog(true);
-    } else {
-      Alert.alert(
-        "記録の削除",
-        "この記録を本当に削除しますか？",
-        [
-          {
-            text: "キャンセル",
-            style: "cancel",
-            onPress: () => {
-              console.log("2. 削除アラート：キャンセルが選択されました。"); 
-            }
-          },
-          {
-            text: "削除",
-            onPress: async () => {
-              console.log("3. 削除アラート：削除が選択されました。"); 
-              try {
-                console.log("4. Firestoreドキュメント削除開始。コレクション: records, ID:", id); 
-                await deleteDoc(doc(db, "records", id));
-                console.log("5. Firestoreドキュメント削除成功。ID:", id); 
-                Alert.alert("成功", "記録が削除されました。");
-                fetchRecords();
-              } catch (error) {
-                console.error("6. 記録の削除中にエラーが発生しました:", error); 
-                Alert.alert("エラー", "記録の削除に失敗しました: " + error.message);
-              }
-            },
-            style: "destructive"
-          }
-        ],
-        { cancelable: false }
-      );
-    }
-  };
-
-  const deleteRecordConfirmed = async () => {
-    setShowDeleteDialog(false);
-    if (!selectedRecordId) return;
-
-    console.log("3. 削除ダイアログ：削除が選択されました。"); 
+  // 検索機能
+  const handleSearch = async () => {
     try {
-      console.log("4. Firestoreドキュメント削除開始。コレクション: records, ID:", selectedRecordId); 
-      await deleteDoc(doc(db, "records", selectedRecordId));
-      console.log("5. Firestoreドキュメント削除成功。ID:", selectedRecordId); 
-      window.alert("成功: 記録が削除されました。");
-      fetchRecords();
+      let q;
+      if (searchQuery.trim() === '') {
+        // 検索クエリが空の場合は全件取得（作成日降順）
+        q = query(recordsCollectionRef, orderBy('createdAt', 'desc'));
+      } else {
+        // 車両番号で部分一致検索（Firebaseでは部分一致検索が難しいので、完全一致を想定）
+        // 大文字小文字を区別しない検索や部分一致検索はFirestoreだけでは難しいです。
+        // 必要に応じて、追加の処理（例: 全データを取得してJS側でフィルタリング）が必要になります。
+        q = query(recordsCollectionRef, where('vehicle_number', '==', searchQuery.trim()));
+      }
+      const data = await getDocs(q);
+      const searchedRecords = data.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+      setRecords(searchedRecords);
     } catch (error) {
-      console.error("6. 記録の削除中にエラーが発生しました:", error); 
-      window.alert("エラー: 記録の削除に失敗しました: " + error.message);
-    } finally {
-      setSelectedRecordId(null);
+      console.error("検索中にエラーが発生しました: ", error);
+      Alert.alert("エラー", "検索に失敗しました。");
     }
   };
+
+  // 記録の削除
+  const handleDeleteRecord = async (id) => {
+    Alert.alert(
+      "確認",
+      "この整備記録を削除してもよろしいですか？",
+      [
+        {
+          text: "キャンセル",
+          style: "cancel"
+        },
+        {
+          text: "削除",
+          onPress: async () => {
+            try {
+              const recordDoc = doc(db, "records", id);
+              await deleteDoc(recordDoc);
+              Alert.alert("成功", "記録が削除されました。");
+              getRecords(); // 削除後にリストを更新
+            } catch (error) {
+              console.error("記録の削除中にエラーが発生しました: ", error);
+              Alert.alert("エラー", "記録の削除に失敗しました。");
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // 記録の編集
+  const handleEditRecord = (record) => {
+    setSelectedRecord(record);
+    setVehicleNumber(record.vehicle_number);
+    setUserName(record.user_name);
+    setVehicleModel(record.vehicle_model);
+    setProblemDescription(record.problem_description);
+    setSolution(record.solution);
+    setMaintenanceMemo(record.maintenance_memo);
+    setIsEditing(true); // 編集モードに設定
+    setModalVisible(false); // 詳細モーダルを閉じる（Web版では詳細モーダルは表示されないが、ネイティブ考慮）
+    
+    // Web版では直接Form画面へ遷移
+    if (Platform.OS === 'web') {
+        navigation.navigate('Form', { recordToEdit: record });
+    } else {
+        // ネイティブアプリの場合、フォーム画面を表示するなど
+        // ここではモーダルを閉じてstateをセットするだけなので、
+        // フォーム画面自体への遷移は別途ナビゲーションで行う必要があるかもしれません。
+        // もしFormScreenがModalとして表示されている場合は、setModalVisibleで制御できます。
+    }
+  };
+
+  // 記録の更新（FormScreenから呼ばれることを想定）
+  // この関数はRecordsScreenでは直接使われないが、念のため残す
+  const handleUpdateRecord = async () => {
+    if (!selectedRecord) return; // 編集対象がなければ何もしない
+
+    try {
+      const recordDoc = doc(db, "records", selectedRecord.id);
+      await updateDoc(recordDoc, {
+        vehicle_number: vehicleNumber,
+        user_name: userName,
+        vehicle_model: vehicleModel,
+        problem_description: problemDescription,
+        solution: solution,
+        maintenance_memo: maintenanceMemo,
+        updatedAt: new Date(), // 更新日時を追加
+      });
+      Alert.alert("成功", "記録が更新されました。");
+      setIsEditing(false); // 編集モード終了
+      setSelectedRecord(null); // 選択レコードをクリア
+      getRecords(); // リストを更新
+      setModalVisible(false); // モーダルを閉じる
+    } catch (error) {
+      console.error("記録の更新中にエラーが発生しました: ", error);
+      Alert.alert("エラー", "記録の更新に失敗しました。");
+    }
+  };
+
 
   const renderItem = ({ item }) => (
     <View style={styles.recordItemContainer}>
       <TouchableOpacity
-        style={styles.recordItemContent} 
+        style={styles.recordItemContent}
         onPress={() => {
-          console.log("スマホのWebブラウザで項目がタップされました！"); // ★追加
-          navigation.navigate('Form', { recordToEdit: item });
+          // ★★★ この部分が修正対象 ★★★
+          if (Platform.OS === 'web') {
+            // Web版の場合（PCでもスマホのブラウザでも）は直接Form画面へ遷移
+            console.log("Web (PC/Mobile) でリスト項目がタップされました。Formへ遷移します。"); // デバッグ用
+            navigation.navigate('Form', { recordToEdit: item });
+          } else {
+            // ネイティブアプリ（iOS/AndroidのExpo Goアプリ）の場合、詳細モーダルを表示
+            console.log("ネイティブアプリでリスト項目がタップされました。詳細モーダルを表示します。"); // デバッグ用
+            setSelectedRecord(item); // 詳細表示用のstateをセット
+            setModalVisible(true);  // モーダルを表示
+          }
         }}
       >
         <Text style={styles.itemTitle}>車両番号: {item.vehicle_number}</Text>
         <Text style={styles.itemText}>ユーザー名: {item.user_name}</Text>
         <Text style={styles.itemText}>車両モデル: {item.vehicle_model}</Text>
-        <Text style={styles.itemText}>問題点: {item.issue_description}</Text>
-        <Text style={styles.itemText}>とった処置: {item.action_taken}</Text>
-        <Text style={styles.itemText}>整備メモ: {item.repair_notes}</Text>
-        {item.timestamp && (
+        {/* createdAtが存在し、Dateオブジェクトの場合のみ表示 */}
+        {item.createdAt && item.createdAt.toDate && (
           <Text style={styles.itemDate}>
-            日時: {new Date(item.timestamp.seconds * 1000).toLocaleString('ja-JP')}
+            記録日: {item.createdAt.toDate().toLocaleDateString('ja-JP')}
           </Text>
         )}
       </TouchableOpacity>
-      
+
       <TouchableOpacity
         style={styles.deleteButton}
-        onPress={() => handleDeleteRecord(item.id)} 
+        onPress={() => handleDeleteRecord(item.id)}
       >
         <Text style={styles.deleteButtonText}>削除</Text>
       </TouchableOpacity>
     </View>
   );
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0000ff" />
-        <Text>記録を読み込み中...</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <View style={styles.filterContainer}>
-        <TextInput
-          style={styles.textInput}
-          placeholder="車両番号で検索"
-          value={searchVehicleNumber}
-          onChangeText={setSearchVehicleNumber}
-        />
-        <View style={styles.datePickerRow}>
-          <ElementsButton
-            title={startDate ? startDate.toLocaleDateString('ja-JP') : "開始日を選択"}
-            onPress={showStartDatePicker}
-            type="outline"
-            containerStyle={styles.dateButtonContainer}
-            buttonStyle={styles.dateButton}
-            titleStyle={styles.dateButtonTitle}
-          />
-          <Text style={styles.dateRangeText}> ～ </Text>
-          <ElementsButton
-            title={endDate ? endDate.toLocaleDateString('ja-JP') : "終了日を選択"}
-            onPress={showEndDatePicker}
-            type="outline"
-            containerStyle={styles.dateButtonContainer}
-            buttonStyle={styles.dateButton}
-            titleStyle={styles.dateButtonTitle}
-          />
-        </View>
-        <View style={styles.filterButtons}>
-          <ElementsButton
-            title="検索"
-            onPress={handleSearch}
-            containerStyle={styles.searchButtonContainer}
-            buttonStyle={styles.searchButton}
-            titleStyle={styles.searchButtonTitle}
-          />
-          <ElementsButton
-            title="クリア"
-            onPress={handleClearFilters}
-            type="outline"
-            containerStyle={styles.clearButtonContainer}
-            buttonStyle={styles.clearButton}
-            titleStyle={styles.clearButtonTitle}
-          />
-        </View>
-      </View>
+    <ScrollView style={styles.container}>
+      <StatusBar style="auto" />
+      <Text style={styles.title}>過去の整備記録</Text>
 
-      {showDatePicker && (
-        <DateTimePicker
-          testID="dateTimePicker"
-          value={pickingFor === 'start' ? (startDate || new Date()) : (endDate || new Date())}
-          mode={datePickerMode}
-          is24Hour={true}
-          display="default"
-          onChange={onDateChange}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="車両番号で検索"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onSubmitEditing={handleSearch} // Enterキーで検索
         />
-      )}
+        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+          <Text style={styles.searchButtonText}>検索</Text>
+        </TouchableOpacity>
+      </View>
 
       {records.length === 0 ? (
-        <Text style={styles.noRecordsText}>該当する記録がありません。</Text> 
+        <Text style={styles.noRecordsText}>記録がありません。</Text>
       ) : (
-        <FlatList
-          data={records}
-          renderItem={renderItem}
-          keyExtractor={item => item.id}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={fetchRecords} />
-          }
-        />
+        records.map(item => renderItem({ item }))
       )}
 
-      {Platform.OS === 'web' && (
-        <Dialog
-          isVisible={showDeleteDialog}
-          onBackdropPress={() => setShowDeleteDialog(false)}
+      {/* 詳細モーダル (ネイティブアプリ用) */}
+      {Platform.OS !== 'web' && selectedRecord && (
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(!modalVisible)}
         >
-          <Dialog.Title title="記録の削除" />
-          <Text>この記録を本当に削除しますか？</Text>
-          <Dialog.Actions>
-            <ElementsButton
-              title="キャンセル"
-              type="clear"
-              onPress={() => {
-                console.log("2. 削除ダイアログ：キャンセルが選択されました。");
-                setShowDeleteDialog(false);
-                setSelectedRecordId(null);
-              }}
-            />
-            <ElementsButton
-              title="削除"
-              buttonStyle={{ backgroundColor: '#dc3545' }}
-              onPress={deleteRecordConfirmed}
-            />
-          </Dialog.Actions>
-        </Dialog>
+          <View style={styles.centeredView}>
+            <View style={styles.modalView}>
+              <Text style={styles.modalTitle}>整備記録詳細</Text>
+              <Text style={styles.modalText}>車両番号: {selectedRecord.vehicle_number}</Text>
+              <Text style={styles.modalText}>ユーザー名: {selectedRecord.user_name}</Text>
+              <Text style={styles.modalText}>車両モデル: {selectedRecord.vehicle_model}</Text>
+              <Text style={styles.modalText}>問題点: {selectedRecord.problem_description}</Text>
+              <Text style={styles.modalText}>とった処置: {selectedRecord.solution}</Text>
+              <Text style={styles.modalText}>整備メモ: {selectedRecord.maintenance_memo}</Text>
+              {selectedRecord.createdAt && selectedRecord.createdAt.toDate && (
+                <Text style={styles.modalText}>
+                  記録日: {selectedRecord.createdAt.toDate().toLocaleDateString('ja-JP')}
+                </Text>
+              )}
+              
+              <View style={styles.modalButtonContainer}>
+                {/* 編集ボタンを追加（ネイティブアプリ用） */}
+                <Pressable
+                  style={[styles.button, styles.buttonEdit]}
+                  onPress={() => {
+                    handleEditRecord(selectedRecord); // 編集処理を開始
+                    // setModalVisible(false); // すでにhandleEditRecord内で閉じる
+                  }}
+                >
+                  <Text style={styles.textStyle}>編集</Text>
+                </Pressable>
+
+                <Pressable
+                  style={[styles.button, styles.buttonClose]}
+                  onPress={() => {
+                    setModalVisible(!modalVisible);
+                    setSelectedRecord(null); // 選択レコードをクリア
+                  }}
+                >
+                  <Text style={styles.textStyle}>閉じる</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       )}
-    </View>
+    </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 10,
+    padding: 20,
     backgroundColor: '#f5f5f5',
   },
-  loadingContainer: {
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  searchInput: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  filterContainer: {
-    backgroundColor: '#fff',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  textInput: {
     height: 40,
     borderColor: '#ccc',
     borderWidth: 1,
-    borderRadius: 5,
+    borderRadius: 8,
     paddingHorizontal: 10,
-    marginBottom: 10,
-  },
-  datePickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  dateButtonContainer: {
-    flex: 1,
-    marginHorizontal: 5,
-  },
-  dateButton: {
-    borderColor: '#007bff',
-    borderWidth: 1,
-  },
-  dateButtonTitle: {
-    color: '#007bff',
-  },
-  dateRangeText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#555',
-  },
-  filterButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 5,
-  },
-  searchButtonContainer: {
-    flex: 1,
-    marginRight: 5,
+    marginRight: 10,
+    backgroundColor: '#fff',
   },
   searchButton: {
     backgroundColor: '#007bff',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  searchButtonTitle: {
+  searchButtonText: {
     color: '#fff',
-  },
-  clearButtonContainer: {
-    flex: 1,
-    marginLeft: 5,
-  },
-  clearButton: {
-    borderColor: '#6c757d',
-    borderWidth: 1,
-  },
-  clearButtonTitle: {
-    color: '#6c757d',
+    fontWeight: 'bold',
   },
   recordItemContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: '#fff',
     padding: 15,
     borderRadius: 8,
     marginBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
   },
   recordItemContent: {
     flex: 1,
-    marginRight: 10,
   },
   itemTitle: {
     fontSize: 18,
@@ -431,32 +316,88 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   itemText: {
-    fontSize: 15,
-    marginBottom: 3,
+    fontSize: 16,
     color: '#555',
+    marginBottom: 3,
   },
   itemDate: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#888',
     marginTop: 5,
-    textAlign: 'right',
   },
-  noRecordsText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginTop: 50,
-    color: '#777',
-  },
-  deleteButton: { 
+  deleteButton: {
     backgroundColor: '#dc3545',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 5,
+    marginLeft: 10,
   },
   deleteButtonText: {
     color: '#fff',
     fontWeight: 'bold',
-    fontSize: 14,
+  },
+  noRecordsText: {
+    textAlign: 'center',
+    marginTop: 50,
+    fontSize: 18,
+    color: '#888',
+  },
+  // モーダルスタイル
+  centeredView: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)', // 半透明の背景
+  },
+  modalView: {
+    margin: 20,
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 35,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+    width: '80%', // モーダルの幅を調整
+    maxHeight: '80%', // モーダルの最大高さを設定
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: '#333',
+  },
+  modalText: {
+    marginBottom: 10,
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#555',
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    marginTop: 20,
+  },
+  button: {
+    borderRadius: 10,
+    padding: 10,
+    elevation: 2,
+    marginHorizontal: 10,
+  },
+  buttonClose: {
+    backgroundColor: '#2196F3',
+  },
+  buttonEdit: { // 編集ボタンのスタイル
+    backgroundColor: '#ffc107',
+  },
+  textStyle: {
+    color: 'white',
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
 
