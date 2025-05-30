@@ -91,82 +91,89 @@ const App = () => {
               }));
             };
 
+            // Web版のデータ取得ロジック
             useEffect(() => {
-                const fetchRecordAndSetForm = async () => {
-                    let recordData = null;
-                    let currentId = null;
-
-                    if (Platform.OS === 'web') {
-                        // Web版の場合、URLのクエリパラメータからrecordIdを取得
+                if (Platform.OS === 'web') {
+                    const fetchRecordForWeb = async () => {
                         const urlParams = new URLSearchParams(window.location.search);
                         const id = urlParams.get('recordId');
+
                         if (id) {
-                            currentId = id;
                             try {
                                 const docRef = doc(db, "records", id);
                                 const docSnap = await getDoc(docRef);
                                 if (docSnap.exists()) {
-                                    recordData = { ...docSnap.data(), id: docSnap.id };
-                                    console.log("Web版でFirestoreからレコードデータを取得:", recordData);
+                                    const recordData = { ...docSnap.data(), id: docSnap.id };
+                                    setLocalFormData({
+                                        vehicle_number: recordData.vehicle_number || '',
+                                        user_name: recordData.user_name || '',
+                                        vehicle_model: recordData.vehicle_model || '',
+                                        issue_description: recordData.issue_description || '',
+                                        action_taken: recordData.action_taken || '',
+                                        repair_notes: recordData.repair_notes || '',
+                                    });
+                                    setIsEditingForm(true);
+                                    setEditingRecordIdForm(id);
+                                    console.log("Web版でFirestoreからレコードデータを取得 (編集モード):", recordData);
                                 } else {
                                     console.log("指定された記録がWeb版で見つかりませんでした。新規作成モードへ移行。");
                                     Alert.alert("情報", "指定された記録が見つからなかったため、新規作成画面になりました。");
-                                    // 見つからない場合はURLからrecordIdを削除して新規作成モードにする
+                                    // URLからrecordIdを削除して新規作成モードにする
                                     window.history.replaceState({}, document.title, window.location.pathname); 
+                                    setLocalFormData({ /* フォームクリア */ vehicle_number: '', user_name: '', vehicle_model: '', issue_description: '', action_taken: '', repair_notes: '' });
+                                    setIsEditingForm(false);
+                                    setEditingRecordIdForm(null);
                                 }
                             } catch (error) {
                                 console.error("Web版での記録取得エラー: ", error);
                                 Alert.alert("エラー", "記録の取得中にエラーが発生しました。新規作成モードへ移行。");
                                 window.history.replaceState({}, document.title, window.location.pathname);
+                                setLocalFormData({ /* フォームクリア */ vehicle_number: '', user_name: '', vehicle_model: '', issue_description: '', action_taken: '', repair_notes: '' });
+                                setIsEditingForm(false);
+                                setEditingRecordIdForm(null);
                             }
+                        } else {
+                            // recordIdがない場合は新規作成モードに確実に戻す
+                            setLocalFormData({ /* フォームクリア */ vehicle_number: '', user_name: '', vehicle_model: '', issue_description: '', action_taken: '', repair_notes: '' });
+                            setIsEditingForm(false);
+                            setEditingRecordIdForm(null);
+                            console.log("Web版でレコードIDなし (新規作成モード)");
                         }
-                    } else {
-                        // ネイティブアプリからの遷移の場合
-                        const { recordToEdit } = route.params || {};
-                        if (recordToEdit) {
-                            recordData = recordToEdit;
-                            currentId = recordToEdit.id;
-                            console.log("ネイティブアプリからレコードデータを取得:", recordData);
-                        }
-                    }
+                    };
+                    fetchRecordForWeb();
+                }
+            }, [Platform.OS === 'web' ? window.location.search : null]); // Web版のみwindow.location.searchを監視
 
-                    if (recordData) {
-                        // データをフォームにセット
+            // ネイティブアプリ版のデータ取得ロジック
+            useEffect(() => {
+                if (Platform.OS !== 'web') {
+                    const { recordToEdit } = route.params || {};
+                    if (recordToEdit) {
                         setLocalFormData({
-                            vehicle_number: recordData.vehicle_number || '',
-                            user_name: recordData.user_name || '',
-                            vehicle_model: recordData.vehicle_model || '',
-                            issue_description: recordData.issue_description || '',
-                            action_taken: recordData.action_taken || '',
-                            repair_notes: recordData.repair_notes || '',
+                            vehicle_number: recordToEdit.vehicle_number || '',
+                            user_name: recordToEdit.user_name || '',
+                            vehicle_model: recordToEdit.vehicle_model || '',
+                            issue_description: recordToEdit.issue_description || '',
+                            action_taken: recordToEdit.action_taken || '',
+                            repair_notes: recordToEdit.repair_notes || '',
                         });
                         setIsEditingForm(true);
-                        setEditingRecordIdForm(currentId);
+                        setEditingRecordIdForm(recordToEdit.id);
+                        console.log("ネイティブアプリからレコードデータを取得 (編集モード):", recordToEdit);
                     } else {
-                        // 新規作成モード
-                        setLocalFormData({ // フォームをクリア
-                            vehicle_number: '', user_name: '', vehicle_model: '',
-                            issue_description: '', action_taken: '', repair_notes: '',
-                        });
+                        // パラメータがない場合は新規作成モード
+                        setLocalFormData({ /* フォームクリア */ vehicle_number: '', user_name: '', vehicle_model: '', issue_description: '', action_taken: '', repair_notes: '' });
                         setIsEditingForm(false);
                         setEditingRecordIdForm(null);
+                        console.log("ネイティブアプリでレコードデータなし (新規作成モード)");
                     }
-                };
-
-                fetchRecordAndSetForm();
-            // 依存配列はPlatform.OSで分岐
-            // Web版の場合はURLのクエリパラメータの変化を監視（直接読み取って変化を検知）
-            // ネイティブアプリの場合はroute.paramsの変化を監視
-            }, [Platform.OS === 'web' ? window.location.search : route.params?.recordToEdit]); 
-            // 注意: window.location.search はオブジェクトではなく文字列なので、
-            // そのまま依存配列に入れても問題ありません。
-            // route.params?.recordToEdit はオブジェクトなので、中身が同じでも参照が異なる場合があるため、
-            // オブジェクト全体ではなく、その中の特定のプロパティ (例: recordToEdit.id) を依存配列に入れることも検討できますが、
-            // 今回はシンプルに recordToEdit の有無で判断しているので、このままで。
+                }
+            }, [route.params?.recordToEdit]); // ネイティブアプリ版のみroute.params.recordToEditを監視
 
             const handleFormSubmitAndClear = async () => {
                 await handleSubmit(localFormData, editingRecordIdForm, navigation);
                 // handleSubmitの成功後にフォームをクリアする
+                // （ナビゲーションで画面を離れるので、厳密にはこのクリアは次の画面で新しいフォームが表示されるときに意味を持つ）
                 setLocalFormData({
                     vehicle_number: '', user_name: '', vehicle_model: '',
                     issue_description: '', action_taken: '', repair_notes: '',
@@ -187,8 +194,8 @@ const App = () => {
                     placeholder="例: ABC-123"
                     value={localFormData.vehicle_number}
                     onChangeText={(text) => handleLocalChange('vehicle_number', text)}
-                    autoCapitalize="none" // オートコンプリートを無効化
-                    autoCorrect={false} // オートコレクトを無効化
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
 
                   <Text style={styles.label}>ユーザー名:</Text>
@@ -197,7 +204,7 @@ const App = () => {
                     placeholder="例: 山田 太郎"
                     value={localFormData.user_name}
                     onChangeText={(text) => handleLocalChange('user_name', text)}
-                    autoCapitalize="words" // 名前の入力なので単語の先頭を大文字に
+                    autoCapitalize="words"
                     autoCorrect={false}
                   />
 
@@ -219,9 +226,9 @@ const App = () => {
                     onChangeText={(text) => handleLocalChange('issue_description', text)}
                     multiline
                     numberOfLines={4}
-                    autoCapitalize="sentences" // 文の先頭を大文字に
+                    autoCapitalize="sentences"
                     autoCorrect={true}
-                    textAlignVertical="top" // Androidでのテキストの垂直方向の開始位置
+                    textAlignVertical="top"
                   />
 
                   <Text style={styles.label}>とった処置:</Text>
@@ -299,7 +306,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
-    // input の高さが multiline で変わる場合があるので、textAreaと同じく textAlignVertical を追加
     textAlignVertical: 'top', 
   },
   container: { 
