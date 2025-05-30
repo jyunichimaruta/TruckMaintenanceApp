@@ -1,20 +1,16 @@
 // RecordsScreen.js
 import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, Alert, TouchableOpacity, ScrollView, Platform, Modal, Pressable, TextInput } from 'react-native';
+import { StyleSheet, Text, View, Alert, ScrollView, Platform, Modal, Pressable, TextInput } from 'react-native';
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy, where } from 'firebase/firestore';
 import { db } from './firebase'; // firebase.jsからdbをインポート
 
 const RecordsScreen = ({ navigation }) => {
-  // RecordsScreen内で直接編集用Stateは不要になるので削除（あれば）
-  // ただし、ネイティブアプリのモーダル編集では必要なので、その部分は残します
   const [records, setRecords] = useState([]);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState(''); // 検索クエリの状態
-  // const [isEditing, setIsEditing] = useState(false); // この行はRecordsScreenでは不要になるはず
 
-  // recordsコレクションへの参照
   const recordsCollectionRef = collection(db, 'records');
 
   // データ取得関数
@@ -39,10 +35,8 @@ const RecordsScreen = ({ navigation }) => {
     try {
       let q;
       if (searchQuery.trim() === '') {
-        // 検索クエリが空の場合は全件取得（作成日降順）
         q = query(recordsCollectionRef, orderBy('timestamp', 'desc'));
       } else {
-        // 車両番号で部分一致検索（Firebaseでは部分一致検索が難しいので、完全一致を想定）
         q = query(recordsCollectionRef, where('vehicle_number', '==', searchQuery.trim()));
       }
       const data = await getDocs(q);
@@ -74,7 +68,7 @@ const RecordsScreen = ({ navigation }) => {
               getRecords(); // 削除後にリストを更新
             } catch (error) {
               console.error("記録の削除中にエラーが発生しました: ", error);
-              Alert.alert("エラー", "記録の削除に失敗しました。");
+              Alert.alert("エラー", "記録の削除に失敗しました: " + error.message);
             }
           }
         }
@@ -83,53 +77,74 @@ const RecordsScreen = ({ navigation }) => {
   };
 
   // 記録の編集（ネイティブアプリのモーダルから呼び出されることを想定）
-  const handleEditRecord = (record) => {
-    // ネイティブアプリの場合、recordscreenから直接Form画面へナビゲート
+  const handleEditRecordFromModal = (record) => { // 関数名を変更して明確化
+    // この関数はネイティブアプリのモーダルからのみ呼び出される想定
     if (Platform.OS !== 'web') {
         setModalVisible(false); // 詳細モーダルを閉じる
-        // App.js内のFormスクリーンにrecordToEditパラメータを渡す
         navigation.navigate('Form', { recordToEdit: record });
     }
   };
 
   const renderItem = ({ item }) => (
     <View style={styles.recordItemContainer}>
-      <TouchableOpacity
-        style={styles.recordItemContent}
-        onPress={() => {
-          if (Platform.OS === 'web') {
-            // Web版の場合（PCでもスマホのブラウザでも）は直接Form画面へ遷移
-            // URLにレコードIDを含めることで、App.js内のFormスクリーンでデータを取得できるようにする
+      {/* 編集遷移部分 - Platform.OSで明確に分岐 */}
+      {Platform.OS === 'web' ? (
+        // Web版では View と onClick を使用し、直接編集フォームに遷移
+        <View
+          style={styles.recordItemContentWeb}
+          onClick={() => {
             const recordId = item.id;
-            const currentOrigin = window.location.origin; // 例: https://truck-maintenance-app-neon.vercel.app
+            const currentOrigin = window.location.origin;
             const newUrl = `${currentOrigin}/Form?recordId=${encodeURIComponent(recordId)}`;
-            console.log("Web版でリスト項目がタップされました。URLに遷移します: ", newUrl);
-            window.location.href = newUrl; // 強制的にURL遷移
-          } else {
-            // ネイティブアプリ（iOS/AndroidのExpo Goアプリ）の場合、詳細モーダルを表示
-            console.log("ネイティブアプリでリスト項目がタップされました。詳細モーダルを表示します。");
-            setSelectedRecord(item); // 詳細表示用のstateをセット
-            setModalVisible(true);  // モーダルを表示
-          }
-        }}
-      >
-        <Text style={styles.itemTitle}>車両番号: {item.vehicle_number}</Text>
-        <Text style={styles.itemText}>ユーザー名: {item.user_name}</Text>
-        <Text style={styles.itemText}>車両モデル: {item.vehicle_model}</Text>
-        {/* timestampが存在し、toDateメソッドを持つ場合のみ表示 */}
-        {item.timestamp && item.timestamp.toDate && (
-          <Text style={styles.itemDate}>
-            記録日: {item.timestamp.toDate().toLocaleDateString('ja-JP')}
-          </Text>
-        )}
-      </TouchableOpacity>
+            console.log("Web版でリスト項目がクリックされました。URLに遷移します: ", newUrl);
+            window.location.href = newUrl; // 直接URL遷移
+          }}
+        >
+          <Text style={styles.itemTitle}>車両番号: {item.vehicle_number}</Text>
+          <Text style={styles.itemText}>ユーザー名: {item.user_name}</Text>
+          <Text style={styles.itemText}>車両モデル: {item.vehicle_model}</Text>
+          {item.timestamp && item.timestamp.toDate && (
+            <Text style={styles.itemDate}>
+              記録日: {item.timestamp.toDate().toLocaleDateString('ja-JP')}
+            </Text>
+          )}
+        </View>
+      ) : (
+        // ネイティブアプリでは Pressable を使用してモーダルを開く
+        <Pressable
+          style={styles.recordItemContent}
+          onPress={() => {
+            setSelectedRecord(item);
+            setModalVisible(true);
+          }}
+        >
+          <Text style={styles.itemTitle}>車両番号: {item.vehicle_number}</Text>
+          <Text style={styles.itemText}>ユーザー名: {item.user_name}</Text>
+          <Text style={styles.itemText}>車両モデル: {item.vehicle_model}</Text>
+          {item.timestamp && item.timestamp.toDate && (
+            <Text style={styles.itemDate}>
+              記録日: {item.timestamp.toDate().toLocaleDateString('ja-JP')}
+            </Text>
+          )}
+        </Pressable>
+      )}
 
-      <TouchableOpacity
-        style={styles.deleteButton}
-        onPress={() => handleDeleteRecord(item.id)}
-      >
-        <Text style={styles.deleteButtonText}>削除</Text>
-      </TouchableOpacity>
+      {/* 削除ボタン - Platform.OSで明確に分岐 */}
+      {Platform.OS === 'web' ? (
+        <View // Web版では View と onClick を使用
+          style={styles.deleteButtonWeb} // Web版専用スタイル
+          onClick={() => handleDeleteRecord(item.id)}
+        >
+          <Text style={styles.deleteButtonText}>削除</Text>
+        </View>
+      ) : (
+        <Pressable // ネイティブアプリでは Pressable を使用
+          style={styles.deleteButton}
+          onPress={() => handleDeleteRecord(item.id)}
+        >
+          <Text style={styles.deleteButtonText}>削除</Text>
+        </Pressable>
+      )}
     </View>
   );
 
@@ -144,11 +159,11 @@ const RecordsScreen = ({ navigation }) => {
           placeholder="車両番号で検索"
           value={searchQuery}
           onChangeText={setSearchQuery}
-          onSubmitEditing={handleSearch} // Enterキーで検索
+          onSubmitEditing={handleSearch}
         />
-        <TouchableOpacity style={styles.searchButton} onPress={handleSearch}>
+        <Pressable style={styles.searchButton} onPress={handleSearch}>
           <Text style={styles.searchButtonText}>検索</Text>
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
       {records.length === 0 ? (
@@ -158,7 +173,7 @@ const RecordsScreen = ({ navigation }) => {
       )}
 
       {/* 詳細モーダル (ネイティブアプリ用 - Web版ではレンダリングしない) */}
-      {Platform.OS !== 'web' && selectedRecord && modalVisible && ( // modalVisibleも条件に追加
+      {Platform.OS !== 'web' && selectedRecord && modalVisible && (
         <Modal
           animationType="slide"
           transparent={true}
@@ -171,9 +186,9 @@ const RecordsScreen = ({ navigation }) => {
               <Text style={styles.modalText}>車両番号: {selectedRecord.vehicle_number}</Text>
               <Text style={styles.modalText}>ユーザー名: {selectedRecord.user_name}</Text>
               <Text style={styles.modalText}>車両モデル: {selectedRecord.vehicle_model}</Text>
-              <Text style={styles.modalText}>問題点: {selectedRecord.issue_description}</Text> {/* issue_description に修正 */}
-              <Text style={styles.modalText}>とった処置: {selectedRecord.action_taken}</Text> {/* action_taken に修正 */}
-              <Text style={styles.modalText}>整備メモ: {selectedRecord.repair_notes}</Text> {/* repair_notes に修正 */}
+              <Text style={styles.modalText}>問題点: {selectedRecord.issue_description}</Text>
+              <Text style={styles.modalText}>とった処置: {selectedRecord.action_taken}</Text>
+              <Text style={styles.modalText}>整備メモ: {selectedRecord.repair_notes}</Text>
               {selectedRecord.timestamp && selectedRecord.timestamp.toDate && (
                 <Text style={styles.modalText}>
                   記録日: {selectedRecord.timestamp.toDate().toLocaleDateString('ja-JP')}
@@ -181,13 +196,10 @@ const RecordsScreen = ({ navigation }) => {
               )}
               
               <View style={styles.modalButtonContainer}>
-                {/* 編集ボタンを追加（ネイティブアプリ用） */}
                 <Pressable
                   style={[styles.button, styles.buttonEdit]}
                   onPress={() => {
-                    handleEditRecord(selectedRecord); // ネイティブアプリでの編集処理
-                    // ネイティブアプリではここでmodalVisibleがfalseになるはず
-                    // Web版ではこのボタンは表示されない
+                    handleEditRecordFromModal(selectedRecord); // 関数名を変更
                   }}
                 >
                   <Text style={styles.textStyle}>編集</Text>
@@ -197,7 +209,7 @@ const RecordsScreen = ({ navigation }) => {
                   style={[styles.button, styles.buttonClose]}
                   onPress={() => {
                     setModalVisible(!modalVisible);
-                    setSelectedRecord(null); // 選択レコードをクリア
+                    setSelectedRecord(null);
                   }}
                 >
                   <Text style={styles.textStyle}>閉じる</Text>
@@ -263,8 +275,13 @@ const styles = StyleSheet.create({
     shadowRadius: 1.41,
     elevation: 2,
   },
-  recordItemContent: {
+  recordItemContent: { // ネイティブアプリ用 (Pressable)
     flex: 1,
+  },
+  recordItemContentWeb: { // Web版用に追加 (View + onClick)
+    flex: 1,
+    cursor: 'pointer', // クリック可能であることを示すカーソル
+    // Webでは View + onClick が最も確実なクリックハンドリング
   },
   itemTitle: {
     fontSize: 18,
@@ -282,12 +299,20 @@ const styles = StyleSheet.create({
     color: '#888',
     marginTop: 5,
   },
-  deleteButton: {
+  deleteButton: { // ネイティブアプリ用 (Pressable)
     backgroundColor: '#dc3545',
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 5,
     marginLeft: 10,
+  },
+  deleteButtonWeb: { // Web版用に追加 (View + onClick)
+    backgroundColor: '#dc3545',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    marginLeft: 10,
+    cursor: 'pointer', // クリック可能であることを示すカーソル
   },
   deleteButtonText: {
     color: '#fff',
