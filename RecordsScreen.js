@@ -1,3 +1,4 @@
+// RecordsScreen.js
 import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, Alert, TouchableOpacity, ScrollView, Platform, Modal, Pressable, TextInput } from 'react-native';
@@ -47,8 +48,6 @@ const RecordsScreen = ({ navigation }) => {
         q = query(recordsCollectionRef, orderBy('createdAt', 'desc'));
       } else {
         // 車両番号で部分一致検索（Firebaseでは部分一致検索が難しいので、完全一致を想定）
-        // 大文字小文字を区別しない検索や部分一致検索はFirestoreだけでは難しいです。
-        // 必要に応じて、追加の処理（例: 全データを取得してJS側でフィルタリング）が必要になります。
         q = query(recordsCollectionRef, where('vehicle_number', '==', searchQuery.trim()));
       }
       const data = await getDocs(q);
@@ -88,70 +87,37 @@ const RecordsScreen = ({ navigation }) => {
     );
   };
 
-  // 記録の編集
+  // 記録の編集（ネイティブアプリのモーダルから呼び出されることを想定）
   const handleEditRecord = (record) => {
-    setSelectedRecord(record);
-    setVehicleNumber(record.vehicle_number);
-    setUserName(record.user_name);
-    setVehicleModel(record.vehicle_model);
-    setProblemDescription(record.problem_description);
-    setSolution(record.solution);
-    setMaintenanceMemo(record.maintenance_memo);
-    setIsEditing(true); // 編集モードに設定
-    setModalVisible(false); // 詳細モーダルを閉じる（Web版では詳細モーダルは表示されないが、ネイティブ考慮）
-    
-    // Web版では直接Form画面へ遷移
-    if (Platform.OS === 'web') {
-        navigation.navigate('Form', { recordToEdit: record });
-    } else {
-        // ネイティブアプリの場合、フォーム画面を表示するなど
-        // ここではモーダルを閉じてstateをセットするだけなので、
-        // フォーム画面自体への遷移は別途ナビゲーションで行う必要があるかもしれません。
-        // もしFormScreenがModalとして表示されている場合は、setModalVisibleで制御できます。
+    // Web版ではこの関数は直接ナビゲーションに繋がっているので、ここでの処理はネイティブ用
+    // ネイティブアプリではモーダルを閉じてフォームのデータをセットする
+    if (Platform.OS !== 'web') {
+        setSelectedRecord(record);
+        setVehicleNumber(record.vehicle_number);
+        setUserName(record.user_name);
+        setVehicleModel(record.vehicle_model);
+        setProblemDescription(record.problem_description);
+        setSolution(record.solution);
+        setMaintenanceMemo(record.maintenance_memo);
+        setIsEditing(true); // 編集モードに設定
+        setModalVisible(false); // 詳細モーダルを閉じる
+        // ここからFormScreenへのナビゲーションが必要なら追加
+        // navigation.navigate('Form', { recordToEdit: record });
     }
   };
-
-  // 記録の更新（FormScreenから呼ばれることを想定）
-  // この関数はRecordsScreenでは直接使われないが、念のため残す
-  const handleUpdateRecord = async () => {
-    if (!selectedRecord) return; // 編集対象がなければ何もしない
-
-    try {
-      const recordDoc = doc(db, "records", selectedRecord.id);
-      await updateDoc(recordDoc, {
-        vehicle_number: vehicleNumber,
-        user_name: userName,
-        vehicle_model: vehicleModel,
-        problem_description: problemDescription,
-        solution: solution,
-        maintenance_memo: maintenanceMemo,
-        updatedAt: new Date(), // 更新日時を追加
-      });
-      Alert.alert("成功", "記録が更新されました。");
-      setIsEditing(false); // 編集モード終了
-      setSelectedRecord(null); // 選択レコードをクリア
-      getRecords(); // リストを更新
-      setModalVisible(false); // モーダルを閉じる
-    } catch (error) {
-      console.error("記録の更新中にエラーが発生しました: ", error);
-      Alert.alert("エラー", "記録の更新に失敗しました。");
-    }
-  };
-
 
   const renderItem = ({ item }) => (
     <View style={styles.recordItemContainer}>
       <TouchableOpacity
         style={styles.recordItemContent}
         onPress={() => {
-          // ★★★ この部分が修正対象 ★★★
           if (Platform.OS === 'web') {
             // Web版の場合（PCでもスマホのブラウザでも）は直接Form画面へ遷移
-            console.log("Web (PC/Mobile) でリスト項目がタップされました。Formへ遷移します。"); // デバッグ用
+            console.log("Web (PC/Mobile) でリスト項目がタップされました。Formへ遷移します。");
             navigation.navigate('Form', { recordToEdit: item });
           } else {
             // ネイティブアプリ（iOS/AndroidのExpo Goアプリ）の場合、詳細モーダルを表示
-            console.log("ネイティブアプリでリスト項目がタップされました。詳細モーダルを表示します。"); // デバッグ用
+            console.log("ネイティブアプリでリスト項目がタップされました。詳細モーダルを表示します。");
             setSelectedRecord(item); // 詳細表示用のstateをセット
             setModalVisible(true);  // モーダルを表示
           }
@@ -201,8 +167,8 @@ const RecordsScreen = ({ navigation }) => {
         records.map(item => renderItem({ item }))
       )}
 
-      {/* 詳細モーダル (ネイティブアプリ用) */}
-      {Platform.OS !== 'web' && selectedRecord && (
+      {/* 詳細モーダル (ネイティブアプリ用 - Web版ではレンダリングしない) */}
+      {Platform.OS !== 'web' && selectedRecord && modalVisible && ( // modalVisibleも条件に追加
         <Modal
           animationType="slide"
           transparent={true}
@@ -229,8 +195,9 @@ const RecordsScreen = ({ navigation }) => {
                 <Pressable
                   style={[styles.button, styles.buttonEdit]}
                   onPress={() => {
-                    handleEditRecord(selectedRecord); // 編集処理を開始
-                    // setModalVisible(false); // すでにhandleEditRecord内で閉じる
+                    handleEditRecord(selectedRecord); // ネイティブアプリでの編集処理
+                    // ネイティブアプリではここでmodalVisibleがfalseになるはず
+                    // Web版ではこのボタンは表示されない
                   }}
                 >
                   <Text style={styles.textStyle}>編集</Text>
