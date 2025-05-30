@@ -6,18 +6,13 @@ import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy,
 import { db } from './firebase'; // firebase.jsからdbをインポート
 
 const RecordsScreen = ({ navigation }) => {
-  const [vehicleNumber, setVehicleNumber] = useState('');
-  const [userName, setUserName] = useState('');
-  const [vehicleModel, setVehicleModel] = useState('');
-  const [problemDescription, setProblemDescription] = useState('');
-  const [solution, setSolution] = useState('');
-  const [maintenanceMemo, setMaintenanceMemo] = useState('');
-
+  // RecordsScreen内で直接編集用Stateは不要になるので削除（あれば）
+  // ただし、ネイティブアプリのモーダル編集では必要なので、その部分は残します
   const [records, setRecords] = useState([]);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState(''); // 検索クエリの状態
-  const [isEditing, setIsEditing] = useState(false); // 編集モードの状態
+  // const [isEditing, setIsEditing] = useState(false); // この行はRecordsScreenでは不要になるはず
 
   // recordsコレクションへの参照
   const recordsCollectionRef = collection(db, 'records');
@@ -25,7 +20,7 @@ const RecordsScreen = ({ navigation }) => {
   // データ取得関数
   const getRecords = async () => {
     try {
-      const q = query(recordsCollectionRef, orderBy('createdAt', 'desc')); // 作成日で降順ソート
+      const q = query(recordsCollectionRef, orderBy('timestamp', 'desc')); // 作成日で降順ソート (timestampを使用)
       const data = await getDocs(q);
       const fetchedRecords = data.docs.map(doc => ({ ...doc.data(), id: doc.id }));
       setRecords(fetchedRecords);
@@ -45,7 +40,7 @@ const RecordsScreen = ({ navigation }) => {
       let q;
       if (searchQuery.trim() === '') {
         // 検索クエリが空の場合は全件取得（作成日降順）
-        q = query(recordsCollectionRef, orderBy('createdAt', 'desc'));
+        q = query(recordsCollectionRef, orderBy('timestamp', 'desc'));
       } else {
         // 車両番号で部分一致検索（Firebaseでは部分一致検索が難しいので、完全一致を想定）
         q = query(recordsCollectionRef, where('vehicle_number', '==', searchQuery.trim()));
@@ -89,20 +84,11 @@ const RecordsScreen = ({ navigation }) => {
 
   // 記録の編集（ネイティブアプリのモーダルから呼び出されることを想定）
   const handleEditRecord = (record) => {
-    // Web版ではこの関数は直接ナビゲーションに繋がっているので、ここでの処理はネイティブ用
-    // ネイティブアプリではモーダルを閉じてフォームのデータをセットする
+    // ネイティブアプリの場合、recordscreenから直接Form画面へナビゲート
     if (Platform.OS !== 'web') {
-        setSelectedRecord(record);
-        setVehicleNumber(record.vehicle_number);
-        setUserName(record.user_name);
-        setVehicleModel(record.vehicle_model);
-        setProblemDescription(record.problem_description);
-        setSolution(record.solution);
-        setMaintenanceMemo(record.maintenance_memo);
-        setIsEditing(true); // 編集モードに設定
         setModalVisible(false); // 詳細モーダルを閉じる
-        // ここからFormScreenへのナビゲーションが必要なら追加
-        // navigation.navigate('Form', { recordToEdit: record });
+        // App.js内のFormスクリーンにrecordToEditパラメータを渡す
+        navigation.navigate('Form', { recordToEdit: record });
     }
   };
 
@@ -113,8 +99,12 @@ const RecordsScreen = ({ navigation }) => {
         onPress={() => {
           if (Platform.OS === 'web') {
             // Web版の場合（PCでもスマホのブラウザでも）は直接Form画面へ遷移
-            console.log("Web (PC/Mobile) でリスト項目がタップされました。Formへ遷移します。");
-            navigation.navigate('Form', { recordToEdit: item });
+            // URLにレコードIDを含めることで、App.js内のFormスクリーンでデータを取得できるようにする
+            const recordId = item.id;
+            const currentOrigin = window.location.origin; // 例: https://truck-maintenance-app-neon.vercel.app
+            const newUrl = `${currentOrigin}/Form?recordId=${encodeURIComponent(recordId)}`;
+            console.log("Web版でリスト項目がタップされました。URLに遷移します: ", newUrl);
+            window.location.href = newUrl; // 強制的にURL遷移
           } else {
             // ネイティブアプリ（iOS/AndroidのExpo Goアプリ）の場合、詳細モーダルを表示
             console.log("ネイティブアプリでリスト項目がタップされました。詳細モーダルを表示します。");
@@ -126,10 +116,10 @@ const RecordsScreen = ({ navigation }) => {
         <Text style={styles.itemTitle}>車両番号: {item.vehicle_number}</Text>
         <Text style={styles.itemText}>ユーザー名: {item.user_name}</Text>
         <Text style={styles.itemText}>車両モデル: {item.vehicle_model}</Text>
-        {/* createdAtが存在し、Dateオブジェクトの場合のみ表示 */}
-        {item.createdAt && item.createdAt.toDate && (
+        {/* timestampが存在し、toDateメソッドを持つ場合のみ表示 */}
+        {item.timestamp && item.timestamp.toDate && (
           <Text style={styles.itemDate}>
-            記録日: {item.createdAt.toDate().toLocaleDateString('ja-JP')}
+            記録日: {item.timestamp.toDate().toLocaleDateString('ja-JP')}
           </Text>
         )}
       </TouchableOpacity>
@@ -181,12 +171,12 @@ const RecordsScreen = ({ navigation }) => {
               <Text style={styles.modalText}>車両番号: {selectedRecord.vehicle_number}</Text>
               <Text style={styles.modalText}>ユーザー名: {selectedRecord.user_name}</Text>
               <Text style={styles.modalText}>車両モデル: {selectedRecord.vehicle_model}</Text>
-              <Text style={styles.modalText}>問題点: {selectedRecord.problem_description}</Text>
-              <Text style={styles.modalText}>とった処置: {selectedRecord.solution}</Text>
-              <Text style={styles.modalText}>整備メモ: {selectedRecord.maintenance_memo}</Text>
-              {selectedRecord.createdAt && selectedRecord.createdAt.toDate && (
+              <Text style={styles.modalText}>問題点: {selectedRecord.issue_description}</Text> {/* issue_description に修正 */}
+              <Text style={styles.modalText}>とった処置: {selectedRecord.action_taken}</Text> {/* action_taken に修正 */}
+              <Text style={styles.modalText}>整備メモ: {selectedRecord.repair_notes}</Text> {/* repair_notes に修正 */}
+              {selectedRecord.timestamp && selectedRecord.timestamp.toDate && (
                 <Text style={styles.modalText}>
-                  記録日: {selectedRecord.createdAt.toDate().toLocaleDateString('ja-JP')}
+                  記録日: {selectedRecord.timestamp.toDate().toLocaleDateString('ja-JP')}
                 </Text>
               )}
               

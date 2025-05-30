@@ -1,7 +1,7 @@
-// App.js (修正箇所)
+// App.js
 import 'react-native-gesture-handler';
 import { enableScreens } from 'react-native-screens';
-enableScreens(true);
+// enableScreens(true); // この行をコメントアウトまたは削除
 import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from 'react';
 import {
@@ -17,11 +17,11 @@ import {
   SafeAreaView,
 } from 'react-native';
 
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useRoute } from '@react-navigation/native'; // useRoute をインポート
 import { createStackNavigator } from '@react-navigation/stack';
 
 import { db } from './firebase';
-import { collection, addDoc, serverTimestamp, doc, updateDoc } from 'firebase/firestore'; 
+import { collection, addDoc, serverTimestamp, doc, updateDoc, getDoc } from 'firebase/firestore'; // getDoc を追加
 
 import RecordsScreen from './RecordsScreen';
 
@@ -37,6 +37,10 @@ const App = () => {
     repair_notes: '',
   });
 
+  // 編集モードかどうかの状態と編集中のレコードID
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingRecordId, setEditingRecordId] = useState(null);
+
   const handleChange = (name, value) => {
     setFormData(prevState => ({
       ...prevState,
@@ -44,29 +48,31 @@ const App = () => {
     }));
   };
 
-  const handleSubmit = async (recordId = null) => {
+  const handleSubmit = async (navigation) => { // navigationを引数に追加
     if (!formData.vehicle_number || !formData.user_name || !formData.issue_description || !formData.action_taken) {
       Alert.alert("エラー", "車両番号、ユーザー名、問題点、とった処置は必須項目です。");
       return;
     }
 
     try {
-      if (recordId) {
-        const recordRef = doc(db, "records", recordId);
+      if (isEditing && editingRecordId) { // 編集モードの場合
+        const recordRef = doc(db, "records", editingRecordId);
         await updateDoc(recordRef, {
           ...formData,
           updated_at: serverTimestamp(),
         });
         Alert.alert("成功", "記録が更新されました。");
-        console.log("記録更新成功:", recordId);
-      } else {
+        console.log("記録更新成功:", editingRecordId);
+      } else { // 新規作成モードの場合
         await addDoc(collection(db, "records"), {
           ...formData,
-          timestamp: serverTimestamp(),
+          timestamp: serverTimestamp(), // 作成日時を追加
         });
         Alert.alert("成功", "新しい記録が追加されました。");
         console.log("記録追加成功");
       }
+
+      // 送信後にフォームをクリアして新規作成モードに戻る
       setFormData({
         vehicle_number: '',
         user_name: '',
@@ -75,6 +81,16 @@ const App = () => {
         action_taken: '',
         repair_notes: '',
       });
+      setIsEditing(false);
+      setEditingRecordId(null);
+      
+      // Web版でURLのクエリパラメータを削除してURLをクリーンにする
+      if (Platform.OS === 'web') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      // 過去の記録を見る画面に戻る
+      navigation.navigate('Records');
     } catch (error) {
       console.error("記録の保存エラー: ", error);
       Alert.alert("エラー", "記録の保存中に問題が発生しました: " + error.message);
@@ -84,40 +100,109 @@ const App = () => {
   return (
     <NavigationContainer>
       <Stack.Navigator initialRouteName="Form">
-        {/* Form画面の定義を Records の前に持ってきてもよいですが、initialRouteNameが優先されます */}
+        {/* Form画面の定義 */}
         <Stack.Screen name="Form" options={{ title: '記録の登録/編集' }}>
           {({ route, navigation }) => {
-            const { recordToEdit } = route.params || {};
-            const [currentRecordId, setCurrentRecordId] = useState(null);
+            const routeParams = route.params || {}; // ネイティブアプリからの遷移用
+            const [recordIdFromUrl, setRecordIdFromUrl] = useState(null); // Web版からの遷移用
 
             useEffect(() => {
-              if (recordToEdit) {
-                setFormData({
-                  vehicle_number: recordToEdit.vehicle_number || '',
-                  user_name: recordToEdit.user_name || '',
-                  vehicle_model: recordToEdit.vehicle_model || '',
-                  issue_description: recordToEdit.issue_description || '',
-                  action_taken: recordToEdit.action_taken || '',
-                  repair_notes: recordToEdit.repair_notes || '',
-                });
-                setCurrentRecordId(recordToEdit.id);
-              } else {
-                setFormData({
-                  vehicle_number: '',
-                  user_name: '',
-                  vehicle_model: '',
-                  issue_description: '',
-                  action_taken: '',
-                  repair_notes: '',
-                });
-                setCurrentRecordId(null);
+              // Web版の場合、URLのクエリパラメータからrecordIdを取得
+              if (Platform.OS === 'web') {
+                const urlParams = new URLSearchParams(window.location.search);
+                const id = urlParams.get('recordId');
+                if (id) {
+                  setRecordIdFromUrl(id);
+                } else {
+                  // recordIdがない場合は新規作成モードを確実に設定
+                  setIsEditing(false);
+                  setEditingRecordId(null);
+                  setFormData({ // フォームもクリア
+                    vehicle_number: '', user_name: '', vehicle_model: '',
+                    issue_description: '', action_taken: '', repair_notes: '',
+                  });
+                }
               }
-            }, [recordToEdit]);
+            }, [routeParams]); // route.params の変更も監視 (ネイティブアプリの戻るボタンなど)
 
-            const handleFormSubmitAndNavigate = async () => {
-              await handleSubmit(currentRecordId);
-              navigation.navigate('Records');
-            };
+            useEffect(() => {
+              const fetchRecord = async () => {
+                let recordData = null;
+                let currentRecordId = null;
+
+                // ネイティブアプリからの遷移の場合
+                if (routeParams.recordToEdit && Platform.OS !== 'web') {
+                  recordData = routeParams.recordToEdit;
+                  currentRecordId = routeParams.recordToEdit.id;
+                  console.log("ネイティブアプリからレコードデータを取得:", recordData);
+                } else if (recordIdFromUrl && Platform.OS === 'web') {
+                  // Web版でURLからIDが渡された場合
+                  console.log("Web版でURLからレコードIDを取得:", recordIdFromUrl);
+                  currentRecordId = recordIdFromUrl;
+                  try {
+                    const docRef = doc(db, "records", recordIdFromUrl);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                      recordData = { ...docSnap.data(), id: docSnap.id };
+                      console.log("Web版でFirestoreからレコードデータを取得:", recordData);
+                    } else {
+                      console.log("No such document! 指定された記録が見つかりませんでした。");
+                      Alert.alert("エラー", "指定された記録が見つかりませんでした。");
+                      // 見つからない場合は新規作成モードに移行
+                      if (Platform.OS === 'web') {
+                         window.history.replaceState({}, document.title, window.location.pathname); // URLからrecordIdを削除
+                      }
+                      setIsEditing(false);
+                      setEditingRecordId(null);
+                      setFormData({ // フォームもクリア
+                        vehicle_number: '', user_name: '', vehicle_model: '',
+                        issue_description: '', action_taken: '', repair_notes: '',
+                      });
+                      return;
+                    }
+                  } catch (error) {
+                    console.error("Error fetching document:", error);
+                    Alert.alert("エラー", "記録の取得中にエラーが発生しました。");
+                     if (Platform.OS === 'web') {
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                     }
+                    setIsEditing(false);
+                    setEditingRecordId(null);
+                    setFormData({ // フォームもクリア
+                        vehicle_number: '', user_name: '', vehicle_model: '',
+                        issue_description: '', action_taken: '', repair_notes: '',
+                    });
+                    return;
+                  }
+                }
+
+                if (recordData) {
+                  // データをフォームにセット
+                  setFormData({
+                    vehicle_number: recordData.vehicle_number || '',
+                    user_name: recordData.user_name || '',
+                    vehicle_model: recordData.vehicle_model || '',
+                    issue_description: recordData.issue_description || '',
+                    action_taken: recordData.action_taken || '',
+                    repair_notes: recordData.repair_notes || '',
+                  });
+                  setIsEditing(true); // 編集モード
+                  setEditingRecordId(currentRecordId); // 編集中のIDを保持
+                } else {
+                  // 新規作成モード (URLにrecordIdがない場合など)
+                  setIsEditing(false);
+                  setEditingRecordId(null);
+                  // フォームをクリア (既に上のuseEffectで実施済みだが念のため)
+                  setFormData({
+                    vehicle_number: '', user_name: '', vehicle_model: '',
+                    issue_description: '', action_taken: '', repair_notes: '',
+                  });
+                }
+              };
+
+              fetchRecord();
+            }, [recordIdFromUrl, routeParams.recordToEdit]); // recordIdFromUrlとroute.params.recordToEditを依存配列に追加
+
 
             return (
               <KeyboardAvoidingView
@@ -197,7 +282,7 @@ const App = () => {
                     keyboardType="default"
                   />
 
-                  <Button title="保存" onPress={handleFormSubmitAndNavigate} />
+                  <Button title={isEditing ? "更新" : "保存"} onPress={() => handleSubmit(navigation)} />
                 </ScrollView>
               </KeyboardAvoidingView>
             );
@@ -247,13 +332,13 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  container: {
+  container: { // このスタイルはAppコンポーネント全体のもので、Form画面のScrollViewには直接適用されません
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#fff',
   },
-  title: {
+  title: { // このスタイルもAppコンポーネント全体のもので、Form画面のテキストには直接適用されません
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 20,
