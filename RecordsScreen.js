@@ -1,7 +1,7 @@
 // RecordsScreen.js
 import { StatusBar } from 'expo-status-bar';
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, Alert, ScrollView, Platform, Modal, Pressable, TextInput } from 'react-native';
+import { StyleSheet, Text, View, Alert, ScrollView, Platform, Modal, Pressable, TextInput, Button } from 'react-native'; // Buttonをインポート
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, query, orderBy, where } from 'firebase/firestore';
 import { db } from './firebase'; // firebase.jsからdbをインポート
 
@@ -76,9 +76,8 @@ const RecordsScreen = ({ navigation }) => {
     );
   };
 
-  // 記録の編集（ネイティブアプリのモーダルから呼び出されることを想定）
-  const handleEditRecordFromModal = (record) => { // 関数名を変更して明確化
-    // この関数はネイティブアプリのモーダルからのみ呼び出される想定
+  // ネイティブアプリ専用の編集ハンドラ (モーダルから呼び出し)
+  const handleEditRecordFromModal = (record) => {
     if (Platform.OS !== 'web') {
         setModalVisible(false); // 詳細モーダルを閉じる
         navigation.navigate('Form', { recordToEdit: record });
@@ -95,9 +94,8 @@ const RecordsScreen = ({ navigation }) => {
           onClick={() => {
             const recordId = item.id;
             const currentOrigin = window.location.origin;
-            const newUrl = `${currentOrigin}/Form?recordId=${encodeURIComponent(recordId)}`;
-            console.log("Web版でリスト項目がクリックされました。URLに遷移します: ", newUrl);
-            window.location.href = newUrl; // 直接URL遷移
+            // Records画面からForm画面へ遷移する際、URLにrecordIdを付与
+            window.location.href = `${currentOrigin}/Form?recordId=${encodeURIComponent(recordId)}`; 
           }}
         >
           <Text style={styles.itemTitle}>車両番号: {item.vehicle_number}</Text>
@@ -148,10 +146,32 @@ const RecordsScreen = ({ navigation }) => {
     </View>
   );
 
+  // Web版の新規登録ボタン
+  const handleNewRecordWeb = () => {
+    window.location.href = `${window.location.origin}/Form`;
+  };
+
+  // ネイティブアプリの新規登録ボタン
+  const handleNewRecordNative = () => {
+    navigation.navigate('Form');
+  };
+
+
   return (
     <ScrollView style={styles.container}>
       <StatusBar style="auto" />
       <Text style={styles.title}>過去の整備記録</Text>
+
+      {/* 新規登録ボタン */}
+      {Platform.OS === 'web' ? (
+        <View style={styles.newRecordButtonContainer}>
+          <Button title="新規登録" onPress={handleNewRecordWeb} />
+        </View>
+      ) : (
+        <View style={styles.newRecordButtonContainer}>
+          <Button title="新規登録" onPress={handleNewRecordNative} />
+        </View>
+      )}
 
       <View style={styles.searchContainer}>
         <TextInput
@@ -234,6 +254,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  newRecordButtonContainer: { // 新規登録ボタンのコンテナ
+    marginBottom: 20,
+    // 必要に応じてスタイル調整
   },
   searchContainer: {
     flexDirection: 'row',
