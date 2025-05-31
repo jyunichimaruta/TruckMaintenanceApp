@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "build:web": "expo export:web --entry-file web/index.js --output-dir web-build", // 新しいWebビルドコマンド
+    "eject": "expo eject"
   },
   "dependencies": {
     "@expo/webpack-config": "^19.0.1",

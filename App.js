@@ -2,38 +2,32 @@
 import 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import React from 'react';
-import { StyleSheet, View, Platform, Button } from 'react-native';
+import { StyleSheet, View, Platform } from 'react-native'; // ButtonはRecordsScreenに移動したので削除
 
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 
 import RecordsScreen from './RecordsScreen';
-import FormScreen from './FormScreen'; // FormScreenを独立したファイルからインポートする (後述)
+import FormScreen from './FormScreen';
 
 const Stack = createStackNavigator();
 
-const App = () => {
+// screen prop を受け取るように変更
+const App = ({ screen, recordId }) => { // recordIdも受け取る
   if (Platform.OS === 'web') {
-    // Web版の場合: URLパスに基づいてコンポーネントをレンダリング
-    // react-router-dom のようなルーターライブラリを使わない、簡易的な実装
-    const path = window.location.pathname;
-    const urlParams = new URLSearchParams(window.location.search);
-    const recordId = urlParams.get('recordId');
-
-    if (path === '/Form' || path === '/Form/') {
+    // Web版の場合: web/index.js から渡された screen prop に応じてコンポーネントをレンダリング
+    if (screen === 'Form') {
       return (
         <View style={styles.webContainer}>
-          <FormScreen recordId={recordId} /> {/* recordIdをpropsとして渡す */}
+          <FormScreen recordId={recordId} /> {/* recordIdをFormScreenに渡す */}
           <StatusBar style="auto" />
         </View>
       );
-    } else { // デフォルトは /Records またはその他のパス
+    } else { // screen === 'Records' またはその他
       return (
         <View style={styles.webContainer}>
           <RecordsScreen />
           <StatusBar style="auto" />
-          {/* Web版のRecordsScreenに新規登録ボタンを明示的に追加する（後述） */}
-          {/* <Button title="新規登録" onPress={() => window.location.href = `${window.location.origin}/Form`} /> */}
         </View>
       );
     }
