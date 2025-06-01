@@ -7,8 +7,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "vercel-build": "expo export --platform web --output-dir dist",
-    "eject": "expo eject"
+    "vercel-build":  "expo export --platform web --output-dir dist && cp _redirects dist/_redirects",
+    "eject":"expo eject"
   },
   "dependencies": {
     "@expo/metro-runtime": "~5.0.4",
